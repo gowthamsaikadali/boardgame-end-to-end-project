@@ -8,30 +8,50 @@ variables:
 - group: New variable group 05-Apr
 
 steps:
-
 - checkout: self
 
+# 1. BUILD
 - script: |
     cd board
-    mvn clean package
+    mvn clean package -DskipTests
   displayName: Build Java App
 
+# 2. SONARQUBE
 - script: |
     cd board
     mvn sonar:sonar \
+      -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
       -Dsonar.host.url=$(SONAR_HOST_URL) \
       -Dsonar.login=$(SONAR_TOKEN)
   displayName: SonarQube Scan
 
+# 3. DOCKER BUILD (with unique tag)
 - script: |
-    docker build -t $(IMAGE_NAME):v1 ./board
+    docker build -t $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(Build.BuildId) ./board
   displayName: Docker Build
 
+# 4. TRIVY SCAN (before push - scan local image)
 - script: |
-    trivy image $(IMAGE_NAME):v1
+    trivy image --exit-code 1 --severity CRITICAL,HIGH \
+      $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(Build.BuildId)
   displayName: Trivy Security Scan
 
-# Connect to AKS
+# 5. ACR LOGIN
+- task: AzureCLI@2
+  displayName: Login to ACR
+  inputs:
+    azureSubscription: 'azure-sc'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      az acr login --name $(ACR_NAME)
+
+# 6. PUSH IMAGE
+- script: |
+    docker push $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(Build.BuildId)
+  displayName: Push Image to ACR
+
+# 7. CONNECT TO AKS
 - task: AzureCLI@2
   displayName: Connect to AKS
   inputs:
@@ -44,24 +64,10 @@ steps:
         --name $(AKS_CLUSTER) \
         --overwrite-existing
 
-# ADD THIS (VERY IMPORTANT)
-- task: AzureCLI@2
-  displayName: Login to ACR
-  inputs:
-    azureSubscription: 'azure-sc'
-    scriptType: bash
-    scriptLocation: inlineScript
-    inlineScript: |
-      az acr login --name $(ACR_NAME)
-
-- script: |
-    docker tag $(IMAGE_NAME):v1 $(ACR_NAME).azurecr.io/$(IMAGE_NAME):v1
-  displayName: Tag Image
-
-- script: |
-    docker push $(ACR_NAME).azurecr.io/$(IMAGE_NAME):v1
-  displayName: Push Image
-
+# 8. UPDATE IMAGE IN K8S + DEPLOY
 - script: |
     kubectl apply -f board/k8s/
+    kubectl set image deployment/board-app \
+      board-app=$(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(Build.BuildId) \
+      -n default
   displayName: Deploy to AKS
