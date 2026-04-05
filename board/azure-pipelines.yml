@@ -5,7 +5,7 @@ pool:
   name: SelfHostedPool
 
 variables:
-- group: New variable group 17-Mar
+- group: New variable group 05-Apr
 
 steps:
 
@@ -31,17 +31,28 @@ steps:
     trivy image $(IMAGE_NAME):v1
   displayName: Trivy Security Scan
 
+# Connect to AKS
 - task: AzureCLI@2
   displayName: Connect to AKS
   inputs:
-    azureSubscription: 'azure-sc'   # your service connection name
+    azureSubscription: 'azure-sc'
     scriptType: bash
     scriptLocation: inlineScript
     inlineScript: |
       az aks get-credentials \
-        --resource-group prasad-rg \
+        --resource-group gowtham-rg \
         --name $(AKS_CLUSTER) \
         --overwrite-existing
+
+# ADD THIS (VERY IMPORTANT)
+- task: AzureCLI@2
+  displayName: Login to ACR
+  inputs:
+    azureSubscription: 'azure-sc'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      az acr login --name $(ACR_NAME)
 
 - script: |
     docker tag $(IMAGE_NAME):v1 $(ACR_NAME).azurecr.io/$(IMAGE_NAME):v1
