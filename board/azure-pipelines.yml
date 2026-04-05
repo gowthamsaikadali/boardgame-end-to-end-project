@@ -1,0 +1,56 @@
+trigger:
+- main
+
+pool:
+  name: SelfHostedPool
+
+variables:
+- group: New variable group 17-Mar
+
+steps:
+
+- checkout: self
+
+- script: |
+    cd board
+    mvn clean package
+  displayName: Build Java App
+
+- script: |
+    cd board
+    mvn sonar:sonar \
+      -Dsonar.host.url=$(SONAR_HOST_URL) \
+      -Dsonar.login=$(SONAR_TOKEN)
+  displayName: SonarQube Scan
+
+- script: |
+    docker build -t $(IMAGE_NAME):v1 ./board
+  displayName: Docker Build
+
+- script: |
+    trivy image $(IMAGE_NAME):v1
+  displayName: Trivy Security Scan
+
+- task: AzureCLI@2
+  displayName: Connect to AKS
+  inputs:
+    azureSubscription: 'azure-sc'   # your service connection name
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      az aks get-credentials \
+        --resource-group prasad-rg \
+        --name $(AKS_CLUSTER) \
+        --overwrite-existing
+
+- script: |
+    docker tag $(IMAGE_NAME):v1 $(ACR_NAME).azurecr.io/$(IMAGE_NAME):v1
+  displayName: Tag Image
+
+- script: |
+    docker push $(ACR_NAME).azurecr.io/$(IMAGE_NAME):v1
+  displayName: Push Image
+
+- script: |
+    kubectl apply -f board/k8s/
+  displayName: Deploy to AKS
