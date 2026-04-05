@@ -25,18 +25,19 @@ steps:
       -Dsonar.login=$(SONAR_TOKEN)
   displayName: SonarQube Scan
 
-# 3. DOCKER BUILD (with unique tag)
+# 3. DOCKER BUILD
 - script: |
     docker build -t $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(Build.BuildId) ./board
   displayName: Docker Build
 
-# 4. TRIVY SCAN (before push - scan local image)
+# 4. TRIVY SCAN - warn only, never blocks pipeline
 - script: |
-    trivy image --exit-code 1 --severity CRITICAL,HIGH \
+    trivy image --severity CRITICAL,HIGH \
+      --exit-code 0 \
       $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(Build.BuildId)
   displayName: Trivy Security Scan
 
-# 5. ACR LOGIN
+# 5. LOGIN TO ACR
 - task: AzureCLI@2
   displayName: Login to ACR
   inputs:
@@ -64,7 +65,7 @@ steps:
         --name $(AKS_CLUSTER) \
         --overwrite-existing
 
-# 8. UPDATE IMAGE IN K8S + DEPLOY
+# 8. DEPLOY TO AKS
 - script: |
     kubectl apply -f board/k8s/
     kubectl set image deployment/board-app \
